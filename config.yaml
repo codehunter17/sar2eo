@@ -1,0 +1,117 @@
+# ============================================================
+# SAR-to-EO Image Translation — Configuration
+# GalaxEye Technical Assignment
+# ============================================================
+# All hyperparameters live here. Pass this file to train.py:
+#   python train.py --config config.yaml
+
+# ── Experiment ──────────────────────────────────────────────
+experiment:
+  name: "pix2pix_sar2eo"
+  seed: 42
+  output_dir: "outputs"
+
+# ── Dataset ─────────────────────────────────────────────────
+data:
+  # Root directory of the Kaggle Sentinel-1&2 dataset.
+  # Expected layout after download:
+  #   data_root/
+  #     train/
+  #       s1/   ← SAR .tif or .png patches
+  #       s2/   ← optical RGB .tif or .png patches
+  #     val/
+  #       s1/
+  #       s2/
+  #
+  # The Kaggle dataset is already segregated by terrain type
+  # (urban, vegetation, water, barren). We use terrain folders
+  # as our split boundary — no adjacent-patch leakage.
+  data_root: "dataset"
+
+  # Fraction of data used if you want to train on a subset.
+  # 1.0 = full split; 0.1 = 10% (fast experiment / Colab).
+  train_fraction: 1.0
+  val_fraction: 1.0
+
+  image_size: 256        # Both SAR and EO are 256×256 patches
+  in_channels: 1         # SAR: single-channel VV
+  out_channels: 3        # EO: RGB
+
+  # SAR preprocessing:
+  #   The input PNGs are already dB-scaled and min-max
+  #   normalised to [0, 255] (as per the inference contract).
+  #   We divide by 255 → [0,1], then normalise to [-1,1].
+  sar_mean: 0.5
+  sar_std:  0.5
+
+  # Optical RGB preprocessing:
+  #   Standard ImageNet-style normalisation shifted to [-1,1]
+  #   so the tanh output of the generator maps directly.
+  eo_mean: [0.5, 0.5, 0.5]
+  eo_std:  [0.5, 0.5, 0.5]
+
+  # Augmentation (applied only during training)
+  augment:
+    horizontal_flip: true
+    vertical_flip:   false   # SAR scenes are orientation-sensitive
+    random_crop:     false   # patches are already 256×256
+
+# ── Model ────────────────────────────────────────────────────
+model:
+  # Generator: U-Net with skip connections
+  #   num_downs controls depth (8 → bottleneck at 1×1 for 256 input)
+  generator:
+    type: "unet"
+    num_downs: 8
+    ngf: 64              # base number of filters
+    norm: "batch"        # batch | instance | none
+    dropout: true        # dropout in bottleneck layers (regularisation)
+    use_tanh: true       # output activation → values in [-1, 1]
+
+  # Discriminator: PatchGAN (70×70 receptive field)
+  discriminator:
+    type: "patchgan"
+    ndf: 64              # base number of discriminator filters
+    n_layers: 3          # 3 layers → 70×70 effective patch size
+    norm: "batch"
+
+# ── Loss ─────────────────────────────────────────────────────
+loss:
+  # lambda_l1 weights the pixel-level L1 term relative to the
+  # adversarial term. 100 is the value from the original
+  # Pix2Pix paper (Isola et al., 2017) and works well in practice.
+  lambda_l1: 100.0
+
+  # Ablation flag:
+  #   "l1_only"  → train generator with L1 loss only (no discriminator)
+  #   "full_gan" → L1 + adversarial (full Pix2Pix)
+  mode: "full_gan"       # change to "l1_only" for ablation Model A
+
+# ── Training ─────────────────────────────────────────────────
+training:
+  epochs: 200
+  batch_size: 4          # safe for ≤16 GB VRAM at 256×256
+
+  # Learning rate schedule: constant for first half,
+  # then linearly decay to 0 (original Pix2Pix schedule).
+  lr: 0.0002
+  lr_decay_start_epoch: 100   # start linear decay after this epoch
+  beta1: 0.5             # Adam β₁ (lower than default for GAN stability)
+  beta2: 0.999
+
+  # Checkpointing
+  save_every_n_epochs: 10
+  keep_last_n_checkpoints: 3
+
+  # Logging
+  log_every_n_steps: 50  # print loss to console every N steps
+  val_every_n_epochs: 5  # run validation every N epochs
+
+  num_workers: 4         # DataLoader workers (set 0 on Windows/Colab)
+  pin_memory: true
+
+# ── Evaluation ───────────────────────────────────────────────
+eval:
+  batch_size: 8
+  # FID requires enough samples to be meaningful (≥2048 recommended)
+  fid_num_samples: 2048

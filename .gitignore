@@ -1,0 +1,30 @@
+# Data (never commit the dataset)
+dataset/
+*.tif
+*.tiff
+
+# Model outputs & checkpoints
+outputs/
+outputs_full/
+outputs_l1/
+*.pth
+submission_assets/
+
+# LaTeX build artifacts
+report.tex
+report.aux
+report.log
+report.out
+
+# Confidential assignment brief — do NOT publish
+*Technical_Assignment*.pdf
+GalaxEye*.pdf
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
