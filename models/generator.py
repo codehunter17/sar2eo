@@ -87,8 +87,12 @@ class UNetDown(nn.Module):
 
 class UNetUp(nn.Module):
     """
-    in_ch must equal prev_decoder_channels + skip_channels
-    (the concat happens here, BEFORE the ConvTranspose).
+    Upsample the decoder feature FIRST, then concatenate the skip connection
+    at the matching spatial resolution (standard Pix2Pix U-Net order).
+
+    in_ch  = channels of the incoming decoder feature.
+    out_ch = channels produced by the transposed conv (before concat).
+    The forward() output therefore has (out_ch + skip_channels) channels.
     """
     def __init__(self, in_ch: int, out_ch: int, norm: str = "batch", dropout: bool = False):
         super().__init__()
@@ -102,7 +106,8 @@ class UNetUp(nn.Module):
         self.block = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor, skip: torch.Tensor) -> torch.Tensor:
-        return self.block(torch.cat([x, skip], dim=1))
+        x = self.block(x)                      # upsample first (H,W -> 2H,2W)
+        return torch.cat([x, skip], dim=1)     # then concat skip at matching resolution
 
 
 # ──────────────────────────────────────────────────────────────
@@ -149,17 +154,21 @@ class UNetGenerator(nn.Module):
 
         # ── Decoder ──────────────────────────────────────────
         # in_ch = (previous decoder output) + (skip connection channels)
-        self.dec1 = UNetUp(ngf*8  + ngf*8,  ngf*8,  norm=norm, dropout=use_dropout)  # 1→2
-        self.dec2 = UNetUp(ngf*8  + ngf*8,  ngf*8,  norm=norm, dropout=use_dropout)  # 2→4
-        self.dec3 = UNetUp(ngf*8  + ngf*8,  ngf*8,  norm=norm, dropout=use_dropout)  # 4→8
-        self.dec4 = UNetUp(ngf*8  + ngf*8,  ngf*8,  norm=norm, dropout=False)        # 8→16
-        self.dec5 = UNetUp(ngf*8  + ngf*4,  ngf*4,  norm=norm, dropout=False)        # 16→32
-        self.dec6 = UNetUp(ngf*4  + ngf*2,  ngf*2,  norm=norm, dropout=False)        # 32→64
-        self.dec7 = UNetUp(ngf*2  + ngf,    ngf,    norm=norm, dropout=False)        # 64→128
+        # in_ch = channels of the incoming decoder feature (output of the
+        # previous up-block, which is out_ch_prev + skip_prev). out_ch = the
+        # transposed-conv output; after concat with the skip the channel count
+        # grows by the skip's channels.
+        self.dec1 = UNetUp(ngf*8,            ngf*8,  norm=norm, dropout=use_dropout)  # bn 1→2,  +e7 -> 1024
+        self.dec2 = UNetUp(ngf*16,           ngf*8,  norm=norm, dropout=use_dropout)  # 2→4,    +e6 -> 1024
+        self.dec3 = UNetUp(ngf*16,           ngf*8,  norm=norm, dropout=use_dropout)  # 4→8,    +e5 -> 1024
+        self.dec4 = UNetUp(ngf*16,           ngf*8,  norm=norm, dropout=False)        # 8→16,   +e4 -> 1024
+        self.dec5 = UNetUp(ngf*16,           ngf*4,  norm=norm, dropout=False)        # 16→32,  +e3 -> 512
+        self.dec6 = UNetUp(ngf*8,            ngf*2,  norm=norm, dropout=False)        # 32→64,  +e2 -> 256
+        self.dec7 = UNetUp(ngf*4,            ngf,    norm=norm, dropout=False)        # 64→128, +e1 -> 128
 
-        # Final upsampling: dec7_out(ngf=64) → 3 channels at 256×256
+        # Final upsampling: dec7 output (ngf*2 = 128) → 3 channels at 256×256
         self.final = nn.Sequential(
-            nn.ConvTranspose2d(ngf, out_channels, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(ngf*2, out_channels, kernel_size=4, stride=2, padding=1),
             nn.Tanh(),   # output in [-1, 1] matches [-1,1] EO normalisation
         )
 
