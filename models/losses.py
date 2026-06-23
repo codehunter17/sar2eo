@@ -54,9 +54,13 @@ class GANLoss(nn.Module):
         self.loss = nn.MSELoss()   # MSE → LSGAN
 
     def _make_target(self, prediction: torch.Tensor, is_real: bool) -> torch.Tensor:
-        """Create a label tensor of the same shape as prediction."""
-        label = self.real_label if is_real else self.fake_label
-        return label.expand_as(prediction)
+        """Target tensor matching prediction's shape AND device.
+
+        Using torch.full_like guarantees the label lives on the same device as
+        the (GPU) prediction, avoiding any CPU/GPU mismatch in the MSE loss.
+        """
+        val = float(self.real_label) if is_real else float(self.fake_label)
+        return torch.full_like(prediction, val)
 
     def forward(self, prediction: torch.Tensor, is_real: bool) -> torch.Tensor:
         target = self._make_target(prediction, is_real)

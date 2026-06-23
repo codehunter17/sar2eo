@@ -28,3 +28,9 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Large archives & reference PDFs (never push)
+*.zip
+archive.zip
+GEN_AI.pdf
+AI PDF stanford University.pdf
