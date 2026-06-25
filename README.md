@@ -18,7 +18,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/<your-username>/sar2eo.git
+git clone https://github.com/codehunter17/sar2eo.git
 cd sar2eo
 
 # Create and activate virtual environment
@@ -32,7 +32,7 @@ pip install -r requirements.txt
 
 **Colab / Kaggle** (GPU already available):
 ```python
-!git clone https://github.com/<your-username>/sar2eo.git
+!git clone https://github.com/codehunter17/sar2eo.git
 %cd sar2eo
 !pip install -r requirements.txt
 ```
@@ -43,7 +43,7 @@ pip install -r requirements.txt
 
 **Dataset used:** [Sentinel-1&2 Image Pairs Segregated by Terrain](https://www.kaggle.com/datasets/requiemonk/sentinel12-image-pairs-segregated-by-terrain)  
 **Why this dataset:** Pre-paired, terrain-segregated, manageable size, no institutional access required.  
-**Split strategy:** We use terrain type as the split boundary. Terrain types used for training: `urban`, `vegetation`, `barren`. Terrain type held out for validation: `water`. This prevents adjacent-patch leakage that would occur with a naïve random split.
+**Split strategy:** We split by **terrain type** to avoid adjacent-patch leakage. Two terrains are held out entirely from training: **`grassland`** is the validation split and **`urban`** is the test split; all remaining terrains are used for training. Splitting by terrain (rather than randomly) prevents near-duplicate adjacent patches from leaking between train and evaluation, which would otherwise inflate the reported scores.
 
 Expected directory layout after download and organisation:
 
@@ -114,26 +114,45 @@ Computes: **LPIPS** (↓), **FID** (↓), **SSIM** (↑), **PSNR** (↑)
 
 ## Model Weights
 
-**Final checkpoint:** [Download from Hugging Face Hub](https://huggingface.co/<your-username>/sar2eo)
+**Final checkpoint:** [Download from Hugging Face Hub](https://huggingface.co/KeenHunter/sar2eo) — `final_weights.pth` (full Pix2Pix generator, 40 epochs).
 
-> The weights link will be added after training is complete. The same link is submitted in the GalaxEye submission form.
+> Public link, no access-request gate. The same link is submitted in the GalaxEye submission form. Load with `infer.py --weights final_weights.pth` (the checkpoint embeds its training config).
 
 ---
 
 ## Results
 
-### Validation Split
+Trained for 40 epochs per model on the full terrain-split dataset (Kaggle T4 ×2). Metrics are computed by `eval.py` and stored in `outputs_full/` and `outputs_l1/` as `metrics_val.json` / `metrics_test.json`.
+
+### Validation Split (terrain = `grassland`)
 
 | Model | LPIPS ↓ | FID ↓ | SSIM ↑ | PSNR ↑ |
 |-------|---------|-------|--------|--------|
-| L1 only (ablation) | — | — | — | — |
-| Pix2Pix (full GAN) | — | — | — | — |
+| L1 only (ablation) | 0.7896 | 285.22 | 0.2531 | 14.10 |
+| Pix2Pix (full GAN) | 0.8006 | 280.63 | 0.2483 | 13.86 |
 
-> Results will be filled in after training. See `outputs/metrics.json`.
+### Test Split (terrain = `urban`)
 
-### Training Loss Curve
+| Model | LPIPS ↓ | FID ↓ | SSIM ↑ | PSNR ↑ |
+|-------|---------|-------|--------|--------|
+| L1 only (ablation) | 0.7390 | 386.30 | 0.1402 | 12.66 |
+| Pix2Pix (full GAN) | 0.7327 | 384.55 | 0.1393 | 12.71 |
 
-![Loss Curve](outputs/loss_curve.png)
+> **Reading these numbers.** LPIPS/FID (perceptual) are the ranking metrics; SSIM/PSNR (pixel) are reported for completeness. The full-GAN and L1-only results are nearly identical because the discriminator collapsed during training (D-loss → 0), so the adversarial term stopped contributing and Pix2Pix effectively reduced to L1-supervised training — see the Technical Report for the loss-curve evidence and discussion. Test (`urban`) is markedly harder than validation (`grassland`): high-texture, building-dense scenes generalise worse. See the Technical Report for the full pixel-vs-perceptual and error analysis.
+
+### Training / Validation Loss Curves
+
+Per-epoch generator/discriminator and train/validation losses are saved as plots and raw CSVs in [`results/`](results/):
+
+**Full Pix2Pix (L1 + adversarial):**
+
+![Full GAN loss curve](results/loss_curve_full_gan.png)
+
+**L1-only ablation:**
+
+![L1-only loss curve](results/loss_curve_l1_only.png)
+
+Raw per-epoch values: [`results/loss_log_full_gan.csv`](results/loss_log_full_gan.csv), [`results/loss_log_l1_only.csv`](results/loss_log_l1_only.csv). The discriminator loss collapses to ≈0 early in the full-GAN run — see the Technical Report for the analysis of why the adversarial term stopped contributing.
 
 ---
 
